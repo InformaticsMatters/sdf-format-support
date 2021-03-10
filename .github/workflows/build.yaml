@@ -1,0 +1,52 @@
+---
+name: build
+
+# Actions that take place on branches
+# or are driven by pull-requests to the main/master branch.
+# Here we build container images but don't push them
+# and therefore do not require docker credentials.
+
+# -----------------
+# Control variables (GitHub Secrets)
+# -----------------
+#
+# (n/a)
+#
+# -----------
+# Environment (GitHub Environments)
+# -----------
+#
+# Environment         (n/a)
+
+on:
+  push:
+    branches-ignore:
+    - 'main'
+  pull_request:
+    branches:
+    - 'main'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r build-requirements.txt
+    - name: Lint
+      run: yamllint .
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out the repo
+      uses: actions/checkout@v2
+    - name: Build (no push)
+      uses: docker/build-push-action@v2
