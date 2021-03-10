@@ -14,8 +14,4 @@
 #    a directory you can write to
 # -----------------------------------------------------------------------------
 
-# Replace this text and the remainder of the file
-# with your formatter implementation...
-
-# Format your data...
-echo "Hello World!"
+python source/formatter.py

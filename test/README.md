@@ -1,4 +1,4 @@
 # Tests
 
 ## success/1
-A dummy file - replace with something that makes sense!
+A copy of the file in the min-apps-data-tier repo

@@ -13,6 +13,9 @@ FROM ${from_image}
 # implementations (and expect to start) in /home/format-support
 WORKDIR /home/format-support
 
+# Copy source code in
+COPY source/ ./source/
+
 # Inject the entrypoint,
 # making sure anyone can read and execute it.
 COPY docker-entrypoint.sh ./
