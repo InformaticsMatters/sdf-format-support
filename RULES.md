@@ -81,17 +81,19 @@ Images...
 4.  **Must** use `CMD` and not `ENTRYPOINT` to launch the entrypoint script  
 5.  **Must** expect to be executed using an arbitrary user and group ID.
     Your container cannot expect to run as a privileged user
-6.  **Must** expect the environment variable `DT_DATASET_NAME` to be set
-    to a string representing the name given of the dataset provided
-7.  **Must** expect the environment variable `DT_DATASET_FILE` to be set
-    to a string representing the full path to the dataset file that is to be
-    processed
+6.  **Must** expect the environment variable `DT_DATASET_FILENAME` to be set
+    to a string representing the filename of the dataset provided
+7.  **Must** expect the environment variable `DT_DATASET_INPUT_PATH` to be set
+    to a directory where the file can be found
 8.  **Must** process the input dataset into files in the directory
     identified by `DT_DATASET_OUTPUT_PATH`
-9.  **Should** expect to be limited to no more than 1 CPU core ane no
+9.  **Must** expect the environment variable `DT_DATASET_OUTPUT_FORMAT` to be
+    set to the MIME type of a new format for the file if file format conversion
+    is to take place.
+10. **Should** expect to be limited to no more than 1 CPU core ane no
     more than 1GiB of memory. Importantly, exceeding the memory limit will
     result in the container being terminated
-10. **Must** use a non-zero exit code to indicate an unrecoverable failure
+11. **Must** use a non-zero exit code to indicate an unrecoverable failure
 
 ---
 

@@ -29,9 +29,10 @@ event_logger.addHandler(event_handler)
 # Get and display the environment material
 # (guaranteed to be provided)
 # using the basic (non-event) logger
-dataset_name = os.getenv('DT_DATASET_NAME')
-dataset_file = os.getenv('DT_DATASET_FILE')
+dataset_filename = os.getenv('DT_DATASET_FILENAME')
+dataset_input_path = os.getenv('DT_DATASET_OUTPUT_PATH')
 dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
+
 
 # Now enter the formatting logic...
 def process_file(writer, dataset_file):
@@ -91,34 +92,37 @@ def process_file(writer, dataset_file):
 
     return num_processed, num_failed, num_mols
 
+
 if __name__ == '__main__':
 
     # Say Hello
     basic_logger.info('sdf-format-support')
 
     # Display environment variables
-    basic_logger.info('DT_DATASET_NAME=%s', dataset_name)
-    basic_logger.info('DT_DATASET_FILE=%s', dataset_file)
+    basic_logger.info('DT_DATASET_FILENAME=%s', dataset_filename)
+    basic_logger.info('DT_DATASET_INPUT_PATH=%s', dataset_input_path)
     basic_logger.info('DT_DATASET_OUTPUT_PATH=%s', dataset_output_path)
 
-    event_logger.info('SDF Data Loader')
+    basic_logger.info('SDF Data Loader')
 
     # Suppress basic RDKit logging...
     RDLogger.logger().setLevel(RDLogger.ERROR)
 
     # Open the file we'll write the standardised data set to.
     # A text, tab-separated file.
-    output_filename = os.path.join(dataset_output_path,'molfile.csv')
-    event_logger.info('Writing to %s...', output_filename)
+    output_filename = os.path.join(dataset_output_path, 'molfile.csv')
+    basic_logger.info('Writing to %s...', output_filename)
 
     num_processed = 0
     with open(output_filename, 'wt') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
         writer.writeheader()
-        num_processed, number_failed, number_mols = process_file(writer, dataset_file)
+        num_processed, number_failed, number_mols =\
+            process_file(writer, os.path.join(dataset_input_path,
+                                              dataset_filename))
 
     # Summary
     event_logger.info('{:,} processed molecules'.format(num_processed))
-    event_logger.info('{:,} molecule failures'.format(number_failed))
-    event_logger.info('{:,} molecule added'.format(number_mols))
-    event_logger.info('Process complete'.format(number_failed))
+    basic_logger.info('{:,} molecule failures'.format(number_failed))
+    basic_logger.info('{:,} molecule added'.format(number_mols))
+    basic_logger.info('Process complete'.format(number_failed))
