@@ -1,11 +1,11 @@
-# format-support-template
+# sdf-format-support
 
-[![build](https://github.com/InformaticsMatters/format-support-template/actions/workflows/build.yaml/badge.svg)](https://github.com/InformaticsMatters/format-support-template/actions/workflows/build.yaml)
-[![publish latest](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-latest.yaml/badge.svg)](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-latest.yaml)
-[![publish tag](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-tag.yaml/badge.svg)](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-tag.yaml)
-[![publish stable](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-stable.yaml/badge.svg)](https://github.com/InformaticsMatters/format-support-template/actions/workflows/publish-stable.yaml)
+[![build](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/build.yaml/badge.svg)](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/build.yaml)
+[![publish latest](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-latest.yaml/badge.svg)](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-latest.yaml)
+[![publish tag](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-tag.yaml/badge.svg)](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-tag.yaml)
+[![publish stable](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-stable.yaml/badge.svg)](https://github.com/InformaticsMatters/sdf-format-support/actions/workflows/publish-stable.yaml)
 
-![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/informaticsmatters/format-support-template)
+![GitHub tag (latest SemVer)](https://img.shields.io/github/v/tag/informaticsmatters/sdf-format-support)
 
 ---
 
