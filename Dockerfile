@@ -6,12 +6,19 @@
 #       the container's actual user ID and group ID will be assigned by the
 #       Data Tier Manager ... so plan accordingly.
 
-ARG from_image=python:3.9.2-slim-buster
+# Base image RDKit
+ARG from_image=informaticsmatters/rdkit-python3-debian:Release_2019_09
 FROM ${from_image}
 
 # All formatter images MUST place their
 # implementations (and expect to start) in /home/format-support
 WORKDIR /home/format-support
+
+# Add python libraries to environment
+COPY requirements.txt ./
+USER root
+RUN python -m pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # Copy source code in
 COPY source/ ./source/

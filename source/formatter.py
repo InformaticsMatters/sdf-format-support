@@ -1,6 +1,15 @@
 import logging
 import os
-import time
+import gzip
+import traceback
+import csv
+from rdkit import Chem, RDLogger
+from standardize_molecule import standardize_to_noniso_smiles
+
+# The columns *every* standard file is expected to contain.
+# Use UPPER_CASE.
+# All standard files must start with these columns.
+_OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac']
 
 # Two loggers - one for basic logging, one for events.
 basic_logger = logging.getLogger('basic')
@@ -17,9 +26,6 @@ event_formatter = logging.Formatter('%(asctime)s # %(levelname)s -EVENT- %(messa
 event_handler.setFormatter(event_formatter)
 event_logger.addHandler(event_handler)
 
-# Say Hello
-basic_logger.info('sdf-format-support')
-
 # Get and display the environment material
 # (guaranteed to be provided)
 # using the basic (non-event) logger
@@ -27,14 +33,92 @@ dataset_name = os.getenv('DT_DATASET_NAME')
 dataset_file = os.getenv('DT_DATASET_FILE')
 dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
 
-basic_logger.error('DT_DATASET_NAME=%s', dataset_name)
-basic_logger.info('DT_DATASET_FILE=%s', dataset_file)
-basic_logger.info('DT_DATASET_OUTPUT_PATH=%s', dataset_output_path)
-
 # Now enter the formatting logic...
-# Here we use the event logger.
-event_logger.info('Progress %d%%', 0)
-time.sleep(4.0)
-event_logger.info('Progress %d%%', 50)
-time.sleep(4.0)
-event_logger.info('Progress %d%%', 100)
+def process_file(writer, dataset_file):
+    """Process the given dataset and process the molecule
+    information, writing it as csv-separated fields to the output.
+
+    As we load the molecule we 'standardise' the SMILES and
+    add inchi information.
+
+    :param writer: DictWriter instance of csv output file
+    :param dataset_file: The (compressed) file to process
+    :returns: The number of items processed and the number of failures
+    """
+
+    num_processed =0
+    num_failed = 0
+    num_mols = 0
+
+    event_logger.info('Processing %s...', dataset_file)
+
+    if dataset_file.endswith('.gz'):
+        gz = gzip.open(dataset_file)
+        supplr = Chem.ForwardSDMolSupplier(gz)
+    else:
+        supplr = Chem.ForwardSDMolSupplier(dataset_file)
+
+    for mol in supplr:
+
+        if not mol:
+            # RDKit could not handle the record
+            num_failed += 1
+            continue
+        try:
+            osmiles = Chem.MolToSmiles(mol)
+            # Standardise the smiles and return a standard molecule.
+            noniso = standardize_to_noniso_smiles(osmiles)
+
+            if not noniso[1]:
+                num_failed += 1
+                continue
+
+            num_mols += 1
+            smiles = noniso[0]
+            inchis = Chem.inchi.MolToInchi(noniso[1], '')
+            inchik = Chem.inchi.InchiToInchiKey(inchis)
+            hac = noniso[1].GetNumHeavyAtoms()
+
+            # Write the standardised data to the csv file
+            writer.writerow({'smiles': smiles, 'inchis': inchis, 'inchik': inchik, 'hac': hac})
+
+        except:
+            num_failed += 1
+            traceback.print_exc()
+
+        # Enough?
+        num_processed += 1
+
+    return num_processed, num_failed, num_mols
+
+if __name__ == '__main__':
+
+    # Say Hello
+    basic_logger.info('sdf-format-support')
+
+    # Display environment variables
+    basic_logger.info('DT_DATASET_NAME=%s', dataset_name)
+    basic_logger.info('DT_DATASET_FILE=%s', dataset_file)
+    basic_logger.info('DT_DATASET_OUTPUT_PATH=%s', dataset_output_path)
+
+    event_logger.info('SDF Data Loader')
+
+    # Suppress basic RDKit logging...
+    RDLogger.logger().setLevel(RDLogger.ERROR)
+
+    # Open the file we'll write the standardised data set to.
+    # A text, tab-separated file.
+    output_filename = os.path.join(dataset_output_path,'molfile.csv')
+    event_logger.info('Writing to %s...', output_filename)
+
+    num_processed = 0
+    with open(output_filename, 'wt') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
+        writer.writeheader()
+        num_processed, number_failed, number_mols = process_file(writer, dataset_file)
+
+    # Summary
+    event_logger.info('{:,} processed molecules'.format(num_processed))
+    event_logger.info('{:,} molecule failures'.format(number_failed))
+    event_logger.info('{:,} molecule added'.format(number_mols))
+    event_logger.info('Process complete'.format(number_failed))
