@@ -88,12 +88,14 @@ Images...
 8.  **Must** process the input dataset into files in the directory
     identified by `DT_DATASET_OUTPUT_PATH`
 9.  **Must** expect the environment variable `DT_DATASET_OUTPUT_FORMAT` to be
-    set to the MIME type of a new format for the file if file format conversion
-    is to take place.
-10. **Should** expect to be limited to no more than 1 CPU core ane no
+    set to the MIME type of the output format for the file if file format
+    conversion is to take place.
+10. If `DT_DATASET_OUTPUT_FORMAT` is set, `DT_DATASET_COMPRESS_OUTPUT` will be
+    defined if the output is to be compressed (using gzip)
+11. **Should** expect to be limited to no more than 1 CPU core ane no
     more than 1GiB of memory. Importantly, exceeding the memory limit will
     result in the container being terminated
-11. **Must** use a non-zero exit code to indicate an unrecoverable failure
+12. **Must** use a non-zero exit code to indicate an unrecoverable failure
 
 ---
 

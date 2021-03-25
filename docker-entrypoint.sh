@@ -15,6 +15,8 @@
 # 4. The environment variable `DT_DATASET_OUTPUT_FORMAT` will be
 #    set to a MIME type if a file format conversion,
 #    rather than data processing, is to be performed
+# 5. If `DT_DATASET_OUTPUT_FORMAT` is set, `DT_DATASET_COMPRESS_OUTPUT` will be
+#    defined if the output is to be compressed (using gzip)
 # -----------------------------------------------------------------------------
 
 python source/formatter.py
