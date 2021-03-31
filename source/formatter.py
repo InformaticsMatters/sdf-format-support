@@ -30,7 +30,7 @@ event_logger.addHandler(event_handler)
 # (guaranteed to be provided)
 # using the basic (non-event) logger
 dataset_filename = os.getenv('DT_DATASET_FILENAME')
-dataset_input_path = os.getenv('DT_DATASET_OUTPUT_PATH')
+dataset_input_path = os.getenv('DT_DATASET_INPUT_PATH')
 dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
 
 
