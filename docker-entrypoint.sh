@@ -7,16 +7,28 @@
 # summarised below...
 #
 # 1. The environment variable `DT_DATASET_FILENAME` will be set to
-#    a string value representing the filename of the dataset
+#    a string value representing the filename of the dataset.
+#    i.e. 'data.sdf.gz'. If compressed it wil end with '.gz'.
 # 2. The environment variable `DT_DATASET_INPUT_PATH` will be
 #    a directory you can find the file defined in part 1
 # 3. The environment variable `DT_DATASET_OUTPUT_PATH` will be
 #    a directory you can write to
-# 4. The environment variable `DT_DATASET_OUTPUT_FORMAT` will be
-#    set to a MIME type if a file format conversion,
-#    rather than data processing, is to be performed
-# 5. If `DT_DATASET_OUTPUT_FORMAT` is set, `DT_DATASET_COMPRESS_OUTPUT` will be
-#    defined if the output is to be compressed (using gzip)
+# 4. The output path may not be empty, and the image must be aware of this
+#    possibility. The container must not remove any files (from the input or
+#    or output directory).
+#
+# 5. The optional environment variable `DT_DATASET_OUTPUT_FORMAT` will be set
+#    if a file format conversion, rather than data loading, is to be performed.
+#    This is expected be a MIME type supported by the image
+# 6. If `DT_DATASET_OUTPUT_FORMAT` is set, the environment variable
+#    `DT_DATASET_OUTPUT_FILENAME` will be set, i.e. 'data.sdf.gz'.
+#    The conversion process simply checks whether the filename ends '.gz'
+#    to determine whether compression (gzip) is required. The file must be
+#    written to the directory specified by `DT_DATASET_OUTPUT_PATH`.
 # -----------------------------------------------------------------------------
 
-python source/formatter.py
+if [ -n "$DT_DATASET_OUTPUT_FORMAT" ]; then
+  python source/converter.py
+else
+  python source/formatter.py
+fi
