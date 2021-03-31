@@ -8,7 +8,7 @@
 #
 # 1. The environment variable `DT_DATASET_FILENAME` will be set to
 #    a string value representing the filename of the dataset.
-#    i.e. 'data.sdf.gz'. If compressed it wil end with '.gz'.
+#    i.e. 'data.sdf.gz'. If compressed it will end with '.gz'.
 # 2. The environment variable `DT_DATASET_INPUT_PATH` will be
 #    a directory you can find the file defined in part 1
 # 3. The environment variable `DT_DATASET_OUTPUT_PATH` will be
