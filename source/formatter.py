@@ -1,3 +1,5 @@
+"""Process an SDF file and a csv file containing data to load into database
+"""
 import logging
 import os
 import gzip
@@ -9,7 +11,7 @@ from standardize_molecule import standardize_to_noniso_smiles
 # The columns *every* standard file is expected to contain.
 # Use UPPER_CASE.
 # All standard files must start with these columns.
-_OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac']
+_OUTPUT_COLUMNS = ['osmiles', 'smiles', 'inchis', 'inchik', 'hac']
 
 # Two loggers - one for basic logging, one for events.
 basic_logger = logging.getLogger('basic')
@@ -54,8 +56,8 @@ def process_file(writer, dataset_file):
     event_logger.info('Processing %s...', dataset_file)
 
     if dataset_file.endswith('.gz'):
-        gz = gzip.open(dataset_file)
-        supplr = Chem.ForwardSDMolSupplier(gz)
+        gzip_file = gzip.open(dataset_file)
+        supplr = Chem.ForwardSDMolSupplier(gzip_file)
     else:
         supplr = Chem.ForwardSDMolSupplier(dataset_file)
 
@@ -64,6 +66,7 @@ def process_file(writer, dataset_file):
         if not mol:
             # RDKit could not handle the record
             num_failed += 1
+            event_logger.info('rdkit cannot handle record - empty mol')
             continue
         try:
             osmiles = Chem.MolToSmiles(mol)
@@ -72,6 +75,7 @@ def process_file(writer, dataset_file):
 
             if not noniso[1]:
                 num_failed += 1
+                event_logger.info(osmiles + ' failed to standardize')
                 continue
 
             num_mols += 1
@@ -81,7 +85,8 @@ def process_file(writer, dataset_file):
             hac = noniso[1].GetNumHeavyAtoms()
 
             # Write the standardised data to the csv file
-            writer.writerow({'smiles': smiles, 'inchis': inchis, 'inchik': inchik, 'hac': hac})
+            writer.writerow({'osmiles': osmiles, 'smiles': smiles,
+                             'inchis': inchis, 'inchik': inchik, 'hac': hac})
 
         except:
             num_failed += 1
@@ -94,7 +99,6 @@ def process_file(writer, dataset_file):
 
 
 if __name__ == '__main__':
-
     # Say Hello
     basic_logger.info('sdf-format-support')
 
@@ -109,11 +113,9 @@ if __name__ == '__main__':
     RDLogger.logger().setLevel(RDLogger.ERROR)
 
     # Open the file we'll write the standardised data set to.
-    # A text, tab-separated file.
-    output_filename = os.path.join(dataset_output_path, 'molfile.csv')
+    output_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
     basic_logger.info('Writing to %s...', output_filename)
 
-    num_processed = 0
     with open(output_filename, 'wt') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
         writer.writeheader()
