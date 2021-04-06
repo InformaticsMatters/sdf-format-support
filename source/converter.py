@@ -1,23 +1,97 @@
 #!/usr/bin/env python
+"""Convert from SDF file to file with a selected mime-type
+"""
 import json
 import re
 import uuid
 import datetime
+import logging
+import os
+import gzip
 from typing import List, Dict
 
-# from rdkit import Chem
 
 _MIME_TYPE_MAP = {'chemical/x-mdl-sdfile': 'sdf',
                   'application/x-squonk-dataset-molecule-v2+json': 'json',
                   'application/schema+json': 'json_schema'}
 
+# Two loggers - one for basic logging, one for events.
+basic_logger = logging.getLogger('basic')
+basic_logger.setLevel(logging.INFO)
+basic_handler = logging.StreamHandler()
+basic_formatter = logging.Formatter('%(asctime)s # %(levelname)s %(message)s')
+basic_handler.setFormatter(basic_formatter)
+basic_logger.addHandler(basic_handler)
 
-class ConvertFile(object):
+event_logger = logging.getLogger('event')
+event_logger.setLevel(logging.INFO)
+event_handler = logging.StreamHandler()
+event_formatter = logging.Formatter('%(asctime)s # %(levelname)s -EVENT- %(message)s')
+event_handler.setFormatter(event_formatter)
+event_logger.addHandler(event_handler)
+
+# Get and display the environment material
+# (guaranteed to be provided)
+# using the basic (non-event) logger
+dataset_filename = os.getenv('DT_DATASET_FILENAME')
+dataset_input_path = os.getenv('DT_DATASET_INPUT_PATH')
+dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
+dataset_output_format = os.getenv('DT_DATASET_OUTPUT_FORMAT')
+dataset_output_filename = os.getenv('DT_DATASET_OUTPUT_FILENAME')
+
+
+# Supporting function for json_schema
+def is_number(value: str) -> int:
+    """"
+    Determines the number type for the property value
+    :return 0 for text, 1 for float, 2 for integer
+    """
+    try:
+        float_number = float(value)
+    except ValueError:
+        return 0
+    else:
+        if float_number.is_integer():
+            return 2
+        return 1
+
+
+# Supporting functions for Json
+def add_sdf_property(properties: Dict[str, str], propname: str, propvalue: List[str]):
+    """"
+    Adds a property (name, value) pair to the properties dictionary
+    """
+
+    if propvalue[len(propvalue) - 1]:
+        # property block should end with an empty line, but some SDFs are buggy
+        properties[propname] = '\n'.join(propvalue)
+    else:
+        properties[propname] = '\n'.join(propvalue[:-1])
+
+
+def check_name_in_properties(properties, prop_types):
+    """ check the name in the properties and set type.
+    """
+
+    for name in properties:
+        if name not in prop_types:
+            prop_types[name] = 2
+        prop_name_type = is_number(properties[name])
+        if prop_name_type < prop_types[name]:
+            prop_types[name] = prop_name_type
+
+    return prop_types
+
+
+class ConvertFile:
     """Class ConvertFile
 
     Purpose: Converts from an input mime-type to an output mime-type.
 
     """
+    errors: int = 0
+    lines: int = 0
+    records: int = 0
 
     def convert(self, from_mime_type: str, to_mime_type: str, infile: str, outfile: str) -> bool:
         """Dispatch method"""
@@ -30,141 +104,159 @@ class ConvertFile(object):
         # Call the method as we return it
         return method(infile, outfile)  # pylint: disable=too-many-function-args
 
-    # Supporting functions for Json
-    def add_sdf_property(self, properties: Dict[str, str], propname: str, propvalue: List[str]):
-        """"
-        Adds a property (name, value) pair to the properties dictionary
+    def process_molecules_json(self, file, outfile):
+        """ process molecules in SDF file
         """
 
-        if propvalue[len(propvalue) - 1]:
-            # property block should end with an empty line, but some SDFs are buggy
-            properties[propname] = '\n'.join(propvalue)
-        else:
-            properties[propname] = '\n'.join(propvalue[:-1])
+        pattern: str = '^>  <(.*)>'
+        molecule = {}
+        molblock = []
+        properties: Dict[str, str] = {}
 
-    # def gen_smiles(molblock):
-    #     mol = Chem.MolFromMolBlock(molblock)
-    #     if mol.GetConformer(-1).Is3D():
-    #         Chem.AssignAtomChiralTagsFromStructure(mol)
-    #
-    #     isosmiles = Chem.MolToSmiles(mol)
-    #     stdsmiles =  Chem.MolToSmiles(mol, isomericSmiles=False)
-    #     return isosmiles, stdsmiles
+        # Loop through molecules
+        while True:
+            self.lines += 1
+
+            # Get next line from file
+            line = file.readline()
+
+            # if line is empty
+            # end of file is reached
+            if not line:
+                break
+
+            # remove newline chars
+            text = line.rstrip('\n\r')
+            molblock.append(text)
+
+            # 'M  END' signifies the end of the molblock. The properties will follow
+            if text == 'M  END':
+                propname = None
+                propvalue = []
+                if molblock[0]:
+                    molecule['name'] = molblock[0]
+                molblock = '\n'.join(molblock)
+                molecule['molblock'] = molblock
+
+                # Loop through properties
+                while True:
+                    self.lines += 1
+                    line = file.readline()
+
+                    # if line is empty
+                    # end of file is reached
+                    if not line:
+                        break
+
+                    text = line.strip()
+
+                    # '$$$$' signifies the end of the record
+                    if text == '$$$$':
+                        self.records += 1
+                        if propname:
+                            add_sdf_property(properties, propname, propvalue)
+
+                        record = {'uuid': str(uuid.uuid4()), 'molecule': molecule,
+                                  'values': properties}
+                        json_str = json.dumps(record)
+                        if self.records > 1:
+                            outfile.write(',')
+                        outfile.write(json_str)
+
+                        molecule = {}
+                        molblock = []
+                        properties: Dict[str, str] = {}
+                        break
+
+                    result = re.match(pattern, text)
+                    if result:
+                        if propname:
+                            add_sdf_property(properties, propname, propvalue)
+                        propname = result.group(1)
+                        propvalue = []
+                    else:
+                        propvalue.append(text)
+
+        outfile.write(']')
 
     def convert_sdf_to_json(self, infile, outfile) -> bool:
         """converts the given SDF file into a Squonk json file.
            Returns True if file successfully converted.
         """
 
-        errors: int = 0
-        lines: int = 0
-        records: int = 0
+        if infile.endswith('.gz'):
+            file = gzip.open(infile, 'rt')
+        else:
+            file = open(infile, 'rt')
 
-        file = open(infile, 'rt')
         outfile = open(outfile, 'w')
         outfile.write('[')
 
-        pattern: str = '^>  <(.*)>'
-
         try:
-            molecule = {}
-            molblock = []
-            properties: Dict[str, str] = {}
-
-            # Loop through molecules
-            while True:
-                lines += 1
-
-                # Get next line from file
-                line = file.readline()
-
-                # if line is empty
-                # end of file is reached
-                if not line:
-                    break
-
-                # remove newline chars
-                text = line.rstrip('\n\r')
-
-                molblock.append(text)
-                # 'M  END' signifies the end of the molblock. The properties will follow
-                if text == 'M  END':
-                    # print('End molblock')
-                    propname = None
-                    propvalue = []
-                    if molblock[0]:
-                        molecule['name'] = molblock[0]
-                    molblock = '\n'.join(molblock)
-                    molecule['molblock'] = molblock
-                    # isosmiles, stdsmiles = gen_smiles(molblock)
-                    # molecule['isosmiles'] = isosmiles
-                    # molecule['stdsmiles'] = stdsmiles
-
-                    # Loop through properties
-                    while True:
-                        lines += 1
-                        line = file.readline()
-
-                        # if line is empty
-                        # end of file is reached
-                        if not line:
-                            break
-
-                        text = line.strip()
-
-                        # '$$$$' signifies the end of the record
-                        if text == '$$$$':
-                            # print('End record')
-                            records += 1
-                            if propname:
-                                self.add_sdf_property(properties, propname, propvalue)
-
-                            record = {'uuid': str(uuid.uuid4()), 'molecule': molecule, 'values': properties}
-                            json_str = json.dumps(record)
-                            if records > 1:
-                                outfile.write(',')
-                            outfile.write(json_str)
-
-                            molecule = {}
-                            molblock = []
-                            properties: Dict[str, str] = {}
-                            break
-                        else:
-                            result = re.match(pattern, text)
-                            if result:
-                                if propname:
-                                    self.add_sdf_property(properties, propname, propvalue)
-                                propname = result.group(1)
-                                propvalue = []
-                            else:
-                                propvalue.append(text)
-
-            outfile.write(']')
-
+            self.process_molecules_json(file, outfile)
         finally:
             outfile.close()
 
-        print(lines, errors)
-        if errors > 0:
+        if self.errors > 0:
             return False
-        else:
-            return True
+        return True
 
-    # Supporting function for json_schema
-    def is_number(self, value: str) -> int:
-        """"
-        Determines the number type for the property value
-        :return 0 for text, 1 for float, 2 for integer
+    def process_properties_json(self, file):
+        """ process properties in SDF file
         """
-        try:
-            f = float(value)
-        except ValueError:
-            return 0
-        else:
-            if f.is_integer():
-                return 2
-            else:
-                return 1
+
+        pattern = '^>  <(.*)>'
+        properties = {}
+        prop_types = {}
+        # Loop through molecules
+        while True:
+            self.lines += 1
+            # Get next line from file
+            line = file.readline()
+
+            # if line is empty
+            # end of file is reached
+            if not line:
+                break
+            # remove newline chars
+            text = line.rstrip('\n\r')
+
+            # 'M  END' signifies the end of the molblock. The properties will follow
+            if text == 'M  END':
+                propname = None
+                prop_value = []
+
+                # Loop through properties
+                while True:
+                    self.lines += 1
+                    line = file.readline()
+
+                    # if line is empty
+                    # end of file is reached
+                    if not line:
+                        break
+                    text = line.strip()
+
+                    # '$$$$' signifies the end of the record
+                    if text == '$$$$':
+                        self.records += 1
+                        if propname:
+                            add_sdf_property(properties, propname, prop_value)
+                        prop_types = check_name_in_properties(properties, prop_types)
+
+                        properties = {}
+                        break
+
+                    result = re.match(pattern, text)
+                    if result:
+                        if propname:
+                            add_sdf_property(properties, propname, prop_value)
+                        propname = result.group(1)
+                        prop_value = []
+                    else:
+                        prop_value.append(text)
+
+        return prop_types
 
     def convert_sdf_to_json_schema(self, infile, outfile) -> bool:
         """converts the given SDF file into a Squonk json schema.
@@ -176,83 +268,23 @@ class ConvertFile(object):
             'uuid': {'type': 'string', 'description': 'Unique UUID'},
             'molecule': {'type': 'object', 'properties': {
                 'name': {'type': 'string', 'description': 'Molecule name'},
-                'molblock': {'type': 'string', 'description': 'Molfile format 2D or 3D representation'},
-                'isosmiles': {'type': 'string', 'description': 'Isomeric SMILES representation'},
-                'stdsmiles': {'type': 'string', 'description': 'Standardised non-isomeric SMILES representation'}
+                'molblock': {'type': 'string',
+                             'description': 'Molfile format 2D or 3D representation'},
+                'isosmiles': {'type': 'string',
+                              'description': 'Isomeric SMILES representation'},
+                'stdsmiles': {'type': 'string',
+                              'description': 'Standardised non-isomeric SMILES representation'}
             }}}
         _lookups = {0: 'string', 1: 'number', 2: 'integer'}
 
-        errors: int = 0
-        lines: int = 0
-        records: int = 0
-
         # Extract the properties from the file
-        file = open(infile, 'rt')
+        if infile.endswith('.gz'):
+            file = gzip.open(infile, 'rt')
+        else:
+            file = open(infile, 'rt')
 
-        pattern = '^>  <(.*)>'
         try:
-            properties = {}
-            prop_types = {}
-            # Loop through molecules
-            while True:
-                lines += 1
-
-                # Get next line from file
-                line = file.readline()
-
-                # if line is empty
-                # end of file is reached
-                if not line:
-                    break
-
-                # remove newline chars
-                text = line.rstrip('\n\r')
-                # print(text)
-
-                # 'M  END' signifies the end of the molblock. The properties will follow
-                if text == 'M  END':
-                    propname = None
-                    propvalue = []
-
-                    # Loop through properties
-                    while True:
-                        lines += 1
-                        line = file.readline()
-
-                        # if line is empty
-                        # end of file is reached
-                        if not line:
-                            break
-
-                        text = line.strip()
-
-                        # '$$$$' signifies the end of the record
-                        if text == '$$$$':
-                            # print('End record')
-                            records += 1
-                            if propname:
-                                self.add_sdf_property(properties, propname, propvalue)
-
-                            for name in properties:
-                                if name not in prop_types:
-                                    prop_types[name] = 2
-                                t = self.is_number(properties[name])
-                                if t < prop_types[name]:
-                                    prop_types[name] = t
-                                # print(name, types[name])
-
-                            properties = {}
-                            break
-                        else:
-                            result = re.match(pattern, text)
-                            if result:
-                                if propname:
-                                    self.add_sdf_property(properties, propname, propvalue)
-                                propname = result.group(1)
-                                propvalue = []
-                            else:
-                                propvalue.append(text)
-
+            prop_types = self.process_properties_json(file)
         finally:
             file.close()
 
@@ -264,21 +296,50 @@ class ConvertFile(object):
             values[prop_name] = {'type': _lookups[prop_type]}
 
         schema_sdf = {'$schema': 'http://json-schema.org/draft/2019-09/schema#',
-                      'description': 'Automatically created from ' + infile + ' on ' + str(datetime.datetime.now()),
+                      'description': 'Automatically created from ' + infile + ' on '
+                                     + str(datetime.datetime.now()),
                       'properties': _json_properties_sdf}
 
         json_str: str = json.dumps(schema_sdf)
-        with open(outfile, 'w') as schemaFile:
-            schemaFile.write(json_str)
+        with open(outfile, 'w') as schema_file:
+            schema_file.write(json_str)
 
-        print(lines, errors)
-        if errors > 0:
+        if self.errors > 0:
             return False
-        else:
-            return True
+        return True
 
 
 if __name__ == "__main__":
-    a = ConvertFile()
-    print(a.convert('chemical/x-mdl-sdfile', 'application/x-squonk-dataset-molecule-v2+json', 'poses.sdf', 'out.json'))
-    print (a.convert('chemical/x-mdl-sdfile', 'application/schema+json', 'poses.sdf', 'out.schema.json'))
+    # Say Hello
+    basic_logger.info('sdf-format-support')
+
+    # Display environment variables
+    basic_logger.info('DT_DATASET_FILENAME=%s', dataset_filename)
+    basic_logger.info('DT_DATASET_INPUT_PATH=%s', dataset_input_path)
+    basic_logger.info('DT_DATASET_OUTPUT_PATH=%s', dataset_output_path)
+    basic_logger.info('DT_DATASET_OUTPUT_FILENAME=%s', dataset_output_filename)
+    basic_logger.info('DT_DATASET_OUTPUT_FORMAT=%s', dataset_output_format)
+
+    # format input file path and output file path.
+    input_file: str = os.path.join(dataset_input_path, dataset_filename)
+    output_file: str = os.path.join(dataset_output_path, dataset_output_filename)
+
+    basic_logger.info('SDF Converter')
+    event_logger.info('Processing %s...', input_file)
+
+    converter = ConvertFile()
+    #print(a.convert('chemical/x-mdl-sdfile', 'application/x-squonk-dataset-molecule-v2+json',
+    # 'poses.sdf', 'out.json'))
+    #print(a.convert('chemical/x-mdl-sdfile', 'application/schema+json', 'poses.sdf',
+    # 'out.schema.json'))
+
+    processed: bool = converter.convert('chemical/x-mdl-sdfile', dataset_output_format, input_file,
+                                        output_file)
+
+    if processed:
+        basic_logger.info('SDF Converter finished successfully')
+    else:
+        basic_logger.info('SDF Converter failed')
+
+    basic_logger.info('lines processes=%s', converter.lines)
+    basic_logger.info('errors=%s', converter.errors)

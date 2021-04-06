@@ -29,9 +29,34 @@ Python virtual environment: -
 ...and then, simulating the provision of the output directory that would
 normally be created by the DataTier Manager, we can run a specific test...
 
+## Example 1: SDF import
+
 Here we apply our test/success/**1** dataset to the container...
 
     $ export DATASET_NAME=1
-    $ export DATASET_FILENAME=dummy.txt
+    $ export DATASET_FILENAME=test.sdf.gz
+    $ export DATASET_OUTPUT_FORMAT=
+    $ mkdir -p test/success/${DATASET_NAME}/output
+    $ IMAGE_NAME=${PWD##*/} docker-compose up
+
+## Example 2: SDF convert to json
+
+Here we covert our test/success/**1** dataset to a JSON file...
+
+    $ export DATASET_NAME=1
+    $ export DATASET_FILENAME=test.sdf.gz
+    $ export DATASET_OUTPUT_FILENAME=test.json
+    $ export DATASET_OUTPUT_FORMAT=application/x-squonk-dataset-molecule-v2+json
+    $ mkdir -p test/success/${DATASET_NAME}/output
+    $ IMAGE_NAME=${PWD##*/} docker-compose up
+
+## Example 3: SDF convert to json schema
+
+Here we covert our test/success/**1** dataset to a JSON schema file...
+
+    $ export DATASET_NAME=1
+    $ export DATASET_FILENAME=test.sdf.gz
+    $ export DATASET_OUTPUT_FILENAME=test.schema.json
+    $ export DATASET_OUTPUT_FORMAT=application/schema+json
     $ mkdir -p test/success/${DATASET_NAME}/output
     $ IMAGE_NAME=${PWD##*/} docker-compose up
