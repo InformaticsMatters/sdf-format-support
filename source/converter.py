@@ -8,6 +8,7 @@ import datetime
 import logging
 import os
 import gzip
+import sys
 from typing import List, Dict
 
 
@@ -99,8 +100,14 @@ class ConvertFile:
         to_type: str = _MIME_TYPE_MAP.get(to_mime_type)
 
         method_name = 'convert_' + str(from_type) + '_to_' + str(to_type)
-        # Get the method from 'self'. Default to a lambda.
-        method = getattr(self, method_name, lambda: "Invalid conversion")
+        # Get the method from 'self'.
+        # method = getattr(self, method_name, lambda: "Invalid conversion")
+        try:
+            method = getattr(self, method_name)
+        except AttributeError:
+            event_logger.info('Method to support %s not found', to_mime_type)
+            return False
+
         # Call the method as we return it
         return method(infile, outfile)  # pylint: disable=too-many-function-args
 
@@ -324,22 +331,23 @@ if __name__ == "__main__":
     input_file: str = os.path.join(dataset_input_path, dataset_filename)
     output_file: str = os.path.join(dataset_output_path, dataset_output_filename)
 
+    # if no input file then raise error and exit
+    if not os.path.isfile(input_file):
+        event_logger.info('File %s is not present', input_file)
+        sys.exit(1)
+
     basic_logger.info('SDF Converter')
     event_logger.info('Processing %s...', input_file)
 
     converter = ConvertFile()
-    #print(a.convert('chemical/x-mdl-sdfile', 'application/x-squonk-dataset-molecule-v2+json',
-    # 'poses.sdf', 'out.json'))
-    #print(a.convert('chemical/x-mdl-sdfile', 'application/schema+json', 'poses.sdf',
-    # 'out.schema.json'))
 
     processed: bool = converter.convert('chemical/x-mdl-sdfile', dataset_output_format, input_file,
                                         output_file)
 
     if processed:
         basic_logger.info('SDF Converter finished successfully')
+        basic_logger.info('lines processes=%s', converter.lines)
+        basic_logger.info('errors=%s', converter.errors)
     else:
         basic_logger.info('SDF Converter failed')
-
-    basic_logger.info('lines processes=%s', converter.lines)
-    basic_logger.info('errors=%s', converter.errors)
+        sys.exit(1)
