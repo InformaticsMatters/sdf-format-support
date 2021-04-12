@@ -64,7 +64,6 @@ _prop_pattern: str = '^>\\s+<(.*)>'
 _mol_separator: str = 'M  END'
 _rec_separator: str = '$$$$'
 
-
 def sdf_add_property(properties: Dict[str, str], propname: str, propvalue: List[str]):
     """"
     Adds a property (name, value) pair to the properties dictionary

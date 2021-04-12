@@ -2,15 +2,14 @@
 """Convert from SDF file to file with a selected mime-type
 """
 import json
-import re
 import uuid
 import datetime
 import logging
 import os
 import gzip
 import sys
-from typing import List, Dict
-
+from typing import Dict
+from utils.sdf_utils import sdf_get_next_record
 
 _MIME_TYPE_MAP = {'chemical/x-mdl-sdfile': 'sdf',
                   'application/x-squonk-dataset-molecule-v2+json': 'json',
@@ -57,19 +56,6 @@ def is_number(value: str) -> int:
         return 1
 
 
-# Supporting functions for Json
-def add_sdf_property(properties: Dict[str, str], propname: str, propvalue: List[str]):
-    """"
-    Adds a property (name, value) pair to the properties dictionary
-    """
-
-    if propvalue[len(propvalue) - 1]:
-        # property block should end with an empty line, but some SDFs are buggy
-        properties[propname] = '\n'.join(propvalue)
-    else:
-        properties[propname] = '\n'.join(propvalue[:-1])
-
-
 def check_name_in_properties(properties, prop_types):
     """ check the name in the properties and set type.
     """
@@ -82,6 +68,19 @@ def check_name_in_properties(properties, prop_types):
             prop_types[name] = prop_name_type
 
     return prop_types
+
+
+# Supporting functions for Json
+def is_valid_uuid(value: str):
+    """"
+    Checks whether ths given value is a UUID
+    """
+
+    try:
+        uuid.UUID(str(value))
+        return True
+    except ValueError:
+        return False
 
 
 class ConvertFile:
@@ -111,80 +110,37 @@ class ConvertFile:
         # Call the method as we return it
         return method(infile, outfile)  # pylint: disable=too-many-function-args
 
-    def process_molecules_json(self, file, outfile):
+    def process_molecules_json(self, infile, outfile):
         """ process molecules in SDF file
         """
 
-        pattern: str = '^>  <(.*)>'
-        molecule = {}
-        molblock = []
-        properties: Dict[str, str] = {}
-
         # Loop through molecules
         while True:
-            self.lines += 1
+            molecule: Dict = {}
+            molecule_block, molecule_name, properties = sdf_get_next_record(infile)
 
-            # Get next line from file
-            line = file.readline()
-
-            # if line is empty
-            # end of file is reached
-            if not line:
+            if not molecule_block:
                 break
 
-            # remove newline chars
-            text = line.rstrip('\n\r')
-            molblock.append(text)
+            if self.records:
+                outfile.write(',')
+            self.records += 1
 
-            # 'M  END' signifies the end of the molblock. The properties will follow
-            if text == 'M  END':
-                propname = None
-                propvalue = []
+            # title line
+            if molecule_name:
+                molecule['name'] = molecule_name
 
-                # title line
-                if molblock[0]:
-                    molecule['name'] = molblock[0]
-                molblock = '\n'.join(molblock)
-                molecule['molblock'] = molblock
+            if is_valid_uuid(molecule_name):
+                molecule_uuid = molecule_name
+            else:
+                molecule_uuid = str(uuid.uuid4())
 
-                # Loop through properties
-                while True:
-                    self.lines += 1
-                    line = file.readline()
+            molecule['molblock'] = molecule_block
 
-                    # if line is empty
-                    # end of file is reached
-                    if not line:
-                        break
-
-                    text = line.strip()
-
-                    # '$$$$' signifies the end of the record
-                    if text == '$$$$':
-                        self.records += 1
-                        if propname:
-                            add_sdf_property(properties, propname, propvalue)
-
-                        record = {'uuid': str(uuid.uuid4()), 'molecule': molecule,
-                                  'values': properties}
-                        json_str = json.dumps(record)
-                        if self.records > 1:
-                            outfile.write(',')
-                        outfile.write(json_str)
-
-                        molecule = {}
-                        molblock = []
-                        properties: Dict[str, str] = {}
-                        break
-
-                    result = re.match(pattern, text)
-                    if result:
-                        if propname:
-                            add_sdf_property(properties, propname, propvalue)
-                        propname = result.group(1)
-                        propvalue = []
-                    else:
-                        propvalue.append(text)
+            record = {'uuid': molecule_uuid, 'molecule': molecule,
+                      'values': properties}
+            json_str = json.dumps(record)
+            outfile.write(json_str)
 
         outfile.write(']')
 
@@ -194,76 +150,40 @@ class ConvertFile:
         """
 
         if infile.endswith('.gz'):
-            file = gzip.open(infile, 'rt')
+            infile_handle = gzip.open(infile, 'rt')
         else:
-            file = open(infile, 'rt')
+            infile_handle = open(infile, 'rt')
 
-        outfile = open(outfile, 'w')
-        outfile.write('[')
+        if outfile.endswith('.gz'):
+            outfile_handle = gzip.open(outfile, 'wt')
+        else:
+            outfile_handle = open(outfile, 'wt')
+
+        outfile_handle.write('[')
 
         try:
-            self.process_molecules_json(file, outfile)
+            self.process_molecules_json(infile_handle, outfile_handle)
         finally:
-            outfile.close()
+            outfile_handle.close()
 
         if self.errors > 0:
             return False
         return True
 
-    def process_properties_json(self, file):
+    def process_properties_json(self, infile):
         """ process properties in SDF file
         """
 
-        pattern = '^>  <(.*)>'
-        properties = {}
         prop_types = {}
         # Loop through molecules
         while True:
-            self.lines += 1
-            # Get next line from file
-            line = file.readline()
+            molecule_block, dummy, properties = sdf_get_next_record(infile)
 
-            # if line is empty
-            # end of file is reached
-            if not line:
+            if not molecule_block:
                 break
-            # remove newline chars
-            text = line.rstrip('\n\r')
 
-            # 'M  END' signifies the end of the molblock. The properties will follow
-            if text == 'M  END':
-                propname = None
-                prop_value = []
-
-                # Loop through properties
-                while True:
-                    self.lines += 1
-                    line = file.readline()
-
-                    # if line is empty
-                    # end of file is reached
-                    if not line:
-                        break
-                    text = line.strip()
-
-                    # '$$$$' signifies the end of the record
-                    if text == '$$$$':
-                        self.records += 1
-                        if propname:
-                            add_sdf_property(properties, propname, prop_value)
-                        prop_types = check_name_in_properties(properties, prop_types)
-
-                        properties = {}
-                        break
-
-                    result = re.match(pattern, text)
-                    if result:
-                        if propname:
-                            add_sdf_property(properties, propname, prop_value)
-                        propname = result.group(1)
-                        prop_value = []
-                    else:
-                        prop_value.append(text)
+            self.records += 1
+            prop_types = check_name_in_properties(properties, prop_types)
 
         return prop_types
 
@@ -288,14 +208,14 @@ class ConvertFile:
 
         # Extract the properties from the file
         if infile.endswith('.gz'):
-            file = gzip.open(infile, 'rt')
+            infile_handle = gzip.open(infile, 'rt')
         else:
-            file = open(infile, 'rt')
+            infile_handle = open(infile, 'rt')
 
         try:
-            prop_types = self.process_properties_json(file)
+            prop_types = self.process_properties_json(infile_handle)
         finally:
-            file.close()
+            infile_handle.close()
 
         # Add the properties from the file to the schema
         values = {}
@@ -310,8 +230,13 @@ class ConvertFile:
                       'properties': _json_properties_sdf}
 
         json_str: str = json.dumps(schema_sdf)
-        with open(outfile, 'w') as schema_file:
-            schema_file.write(json_str)
+
+        if outfile.endswith('.gz'):
+            outfile_handle = gzip.open(outfile, 'w')
+        else:
+            outfile_handle = open(outfile, 'w')
+
+        outfile_handle.write(json_str)
 
         if self.errors > 0:
             return False
@@ -348,7 +273,7 @@ if __name__ == "__main__":
 
     if processed:
         basic_logger.info('SDF Converter finished successfully')
-        basic_logger.info('lines processes=%s', converter.lines)
+        basic_logger.info('records processed=%s', converter.records)
         basic_logger.info('errors=%s', converter.errors)
     else:
         basic_logger.info('SDF Converter failed')
