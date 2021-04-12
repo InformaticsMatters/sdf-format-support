@@ -140,6 +140,8 @@ class ConvertFile:
             if text == 'M  END':
                 propname = None
                 propvalue = []
+
+                # title line
                 if molblock[0]:
                     molecule['name'] = molblock[0]
                 molblock = '\n'.join(molblock)

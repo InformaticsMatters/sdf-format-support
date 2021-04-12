@@ -5,13 +5,19 @@ import os
 import gzip
 import traceback
 import csv
+import sys
+import uuid
+
+from typing import Dict
+
 from rdkit import Chem, RDLogger
 from standardize_molecule import standardize_to_noniso_smiles
+from utils.sdf_utils import sdf_get_next_record, sdf_write_record, sdf_add_property
 
 # The columns *every* standard file is expected to contain.
 # Use UPPER_CASE.
 # All standard files must start with these columns.
-_OUTPUT_COLUMNS = ['osmiles', 'smiles', 'inchis', 'inchik', 'hac']
+_OUTPUT_COLUMNS = ['osmiles', 'smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid']
 
 # Two loggers - one for basic logging, one for events.
 basic_logger = logging.getLogger('basic')
@@ -34,40 +40,107 @@ event_logger.addHandler(event_handler)
 dataset_filename = os.getenv('DT_DATASET_FILENAME')
 dataset_input_path = os.getenv('DT_DATASET_INPUT_PATH')
 dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
+dataset_extra_variables = os.getenv('DT_DATASET_EXTRA_VARIABLES')
+processing_vars: Dict = {}
+
+def get_processing_variables():
+    """Validate and return extra variables provided by user in API call
+    The assumption is that this will be a text block of format name=value
+    separated by line feeds.
+
+    :returns: process_vars - dictionary of processing variables.
+    """
+    process_vars = {}
+
+    # Set defaults
+    _valid_params = ['generate_uuid', 'existing_title_fieldname']
+    process_vars['generate_uuid'] = True
+    process_vars['existing_title_fieldname'] = ''
+
+    # Split into list of pairs
+    params = dataset_extra_variables.split('&')
+    for row in params:
+        param = row.split('=')
+        if param[0].lower() in _valid_params:
+            process_vars[param[0]] = param[1]
+
+    if isinstance(process_vars['generate_uuid'], str) and \
+            process_vars['generate_uuid'].lower() in ['false']:
+        process_vars['generate_uuid'] = False
+
+    if process_vars['existing_title_fieldname'] and not process_vars['generate_uuid']:
+        event_logger.info('Invalid combination of parameters')
+        sys.exit(1)
+
+    return process_vars
 
 
-# Now enter the formatting logic...
-def process_file(writer, dataset_file):
+def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
+                     rec_nr):
+    """Write the given record to the output file
+
+    Some of this may end up in std_utils..
+
+    :param processing_vars: Dict
+    :param output_sdf_file: File Object
+    :param molecule_block:
+    :param molecule_name:
+    :param properties:
+    :param rec_nr: to be inserted into file
+    :returns:
+    """
+
+    # User has named a property name to receive the existing molecule name that will be
+    # overridden by the UUID.
+    if processing_vars['existing_title_fieldname'] and molecule_name:
+        properties = sdf_add_property(properties, processing_vars['existing_title_fieldname'],
+                                      [molecule_name])
+
+    molecule_uuid = str(uuid.uuid4())
+
+    sdf_write_record(output_sdf_file, molecule_block, molecule_uuid, properties, rec_nr)
+
+    return molecule_uuid
+
+
+def process_file(output_writer, input_sdf_file, output_sdf_file):
     """Process the given dataset and process the molecule
     information, writing it as csv-separated fields to the output.
 
     As we load the molecule we 'standardise' the SMILES and
     add inchi information.
 
-    :param writer: DictWriter instance of csv output file
-    :param dataset_file: The (compressed) file to process
+    :param output_writer: DictWriter instance of csv output file
+    :param input_sdf_file: SDF File to process
+    :param output_sdf_file: SDF File to write to if required.
     :returns: The number of items processed and the number of failures
     """
 
-    num_processed =0
+    num_processed = 0
     num_failed = 0
     num_mols = 0
 
-    event_logger.info('Processing %s...', dataset_file)
+    while True:
 
-    if dataset_file.endswith('.gz'):
-        gzip_file = gzip.open(dataset_file)
-        supplr = Chem.ForwardSDMolSupplier(gzip_file)
-    else:
-        supplr = Chem.ForwardSDMolSupplier(dataset_file)
+        molecule_block, molecule_name, properties = sdf_get_next_record(input_sdf_file)
 
-    for mol in supplr:
+        if not molecule_block:
+            if processing_vars['generate_uuid']:
+                # End and Close the SDF file if there are no more molecules.
+                output_sdf_file.close()
+            break
+
+        # If something exists in the molecule_block, then a record has been found,
+        # otherwise end of file has been reached.
+        num_processed += 1
+        mol = Chem.MolFromMolBlock(molecule_block)
 
         if not mol:
             # RDKit could not handle the record
             num_failed += 1
             event_logger.info('rdkit cannot handle record - empty mol')
             continue
+
         try:
             osmiles = Chem.MolToSmiles(mol)
             # Standardise the smiles and return a standard molecule.
@@ -75,25 +148,32 @@ def process_file(writer, dataset_file):
 
             if not noniso[1]:
                 num_failed += 1
-                event_logger.info(osmiles + ' failed to standardize')
+                event_logger.info('%s failed to standardize in RDKit', osmiles)
                 continue
 
             num_mols += 1
-            smiles = noniso[0]
+            if processing_vars['generate_uuid']:
+                # If we are generating a UUID for the molecules then we need to rewrite
+                # the record to a new output SDF file.
+                molecule_uuid = write_output_sdf(output_sdf_file,
+                                                 molecule_block, molecule_name, properties,
+                                                 num_mols)
+            else:
+                molecule_uuid = ''
+
             inchis = Chem.inchi.MolToInchi(noniso[1], '')
             inchik = Chem.inchi.InchiToInchiKey(inchis)
-            hac = noniso[1].GetNumHeavyAtoms()
 
             # Write the standardised data to the csv file
-            writer.writerow({'osmiles': osmiles, 'smiles': smiles,
-                             'inchis': inchis, 'inchik': inchik, 'hac': hac})
+            output_writer.writerow({'osmiles': osmiles, 'smiles': noniso[0],
+                             'inchis': inchis, 'inchik': inchik,
+                             'hac': noniso[1].GetNumHeavyAtoms(), 'molecule-uuid': molecule_uuid})
 
         except:
             num_failed += 1
             traceback.print_exc()
-
-        # Enough?
-        num_processed += 1
+            event_logger.info('%s Caused a failure in RDKit', osmiles)
+            sys.exit(1)
 
     return num_processed, num_failed, num_mols
 
@@ -106,6 +186,11 @@ if __name__ == '__main__':
     basic_logger.info('DT_DATASET_FILENAME=%s', dataset_filename)
     basic_logger.info('DT_DATASET_INPUT_PATH=%s', dataset_input_path)
     basic_logger.info('DT_DATASET_OUTPUT_PATH=%s', dataset_output_path)
+    basic_logger.info('DT_DATASET_EXTRA_VARIABLES=%s', dataset_extra_variables)
+
+    processing_vars = get_processing_variables()
+    basic_logger.info('generate_uuid=%s', processing_vars['generate_uuid'])
+    basic_logger.info('existing_title_fieldname=%s', processing_vars['existing_title_fieldname'])
 
     basic_logger.info('SDF Data Loader')
 
@@ -113,18 +198,33 @@ if __name__ == '__main__':
     RDLogger.logger().setLevel(RDLogger.ERROR)
 
     # Open the file we'll write the standardised data set to.
-    output_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
-    basic_logger.info('Writing to %s...', output_filename)
+    loader_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
+    basic_logger.info('Writing to %s...', loader_filename)
 
-    with open(output_filename, 'wt') as csvfile:
+    with open(loader_filename, 'wt') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
         writer.writeheader()
-        num_processed, number_failed, number_mols =\
-            process_file(writer, os.path.join(dataset_input_path,
-                                              dataset_filename))
+
+        input_filename = os.path.join(dataset_input_path, dataset_filename)
+        output_filename = os.path.join(dataset_output_path, dataset_filename)
+
+        event_logger.info('Processing %s...', input_filename)
+        output_sdf: object = None
+
+        if dataset_filename.endswith('.gz'):
+            input_sdf = gzip.open(input_filename, 'rt')
+            if processing_vars['generate_uuid']:
+                output_sdf = gzip.open(output_filename, 'wt')
+        else:
+            input_sdf = open(input_filename, 'rt')
+            if processing_vars['generate_uuid']:
+                output_sdf = open(output_filename, 'wt')
+
+        processed, failed, mols =\
+            process_file(writer, input_sdf, output_sdf)
 
     # Summary
-    event_logger.info('{:,} processed molecules'.format(num_processed))
-    basic_logger.info('{:,} molecule failures'.format(number_failed))
-    basic_logger.info('{:,} molecule added'.format(number_mols))
-    basic_logger.info('Process complete'.format(number_failed))
+    event_logger.info('{:,} processed molecules'.format(processed))
+    basic_logger.info('{:,} molecule failures'.format(failed))
+    basic_logger.info('{:,} molecule added'.format(mols))
+    basic_logger.info('Process complete')
