@@ -58,11 +58,26 @@ where (1) is a record number.
 """
 
 import re
+import uuid
 from typing import Dict, List
 
 _prop_pattern: str = '^>\\s+<(.*)>'
 _mol_separator: str = 'M  END'
 _rec_separator: str = '$$$$'
+
+
+# Supporting functions for Json
+def is_valid_uuid(value: str):
+    """"
+    Checks whether ths given value is a UUID
+    """
+
+    try:
+        uuid.UUID(str(value))
+        return True
+    except ValueError:
+        return False
+
 
 def sdf_add_property(properties: Dict[str, str], propname: str, propvalue: List[str]):
     """"

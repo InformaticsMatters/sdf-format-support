@@ -9,7 +9,7 @@ import os
 import gzip
 import sys
 from typing import Dict
-from utils.sdf_utils import sdf_get_next_record
+from utils.sdf_utils import sdf_get_next_record, is_valid_uuid
 
 _MIME_TYPE_MAP = {'chemical/x-mdl-sdfile': 'sdf',
                   'application/x-squonk-dataset-molecule-v2+json': 'json',
@@ -68,19 +68,6 @@ def check_name_in_properties(properties, prop_types):
             prop_types[name] = prop_name_type
 
     return prop_types
-
-
-# Supporting functions for Json
-def is_valid_uuid(value: str):
-    """"
-    Checks whether ths given value is a UUID
-    """
-
-    try:
-        uuid.UUID(str(value))
-        return True
-    except ValueError:
-        return False
 
 
 class ConvertFile:

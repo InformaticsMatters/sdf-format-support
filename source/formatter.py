@@ -12,7 +12,7 @@ from typing import Dict
 
 from rdkit import Chem, RDLogger
 from standardize_molecule import standardize_to_noniso_smiles
-from utils.sdf_utils import sdf_get_next_record, sdf_write_record, sdf_add_property
+from utils.sdf_utils import sdf_get_next_record, sdf_write_record, sdf_add_property, is_valid_uuid
 
 # The columns *every* standard file is expected to contain.
 # Use UPPER_CASE.
@@ -138,7 +138,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
         if not mol:
             # RDKit could not handle the record
             num_failed += 1
-            event_logger.info('rdkit cannot handle record - empty mol')
+            event_logger.info('RDkit cannot handle record %s - empty mol', num_processed)
             continue
 
         try:
@@ -148,7 +148,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
 
             if not noniso[1]:
                 num_failed += 1
-                event_logger.info('%s failed to standardize in RDKit', osmiles)
+                event_logger.info('Record %s failed to standardize in RDKit', num_processed)
                 continue
 
             num_mols += 1
@@ -159,7 +159,14 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                                                  molecule_block, molecule_name, properties,
                                                  num_mols)
             else:
-                molecule_uuid = ''
+                # if we are not generating a UUID then the molecule name must already contain
+                # a UUID.
+                if is_valid_uuid(molecule_name):
+                    molecule_uuid = molecule_name
+                else:
+                    num_failed += 1
+                    event_logger.info('Record %s did not contain a uuid', num_processed)
+                    continue
 
             inchis = Chem.inchi.MolToInchi(noniso[1], '')
             inchik = Chem.inchi.InchiToInchiKey(inchis)
@@ -169,7 +176,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                              'inchis': inchis, 'inchik': inchik,
                              'hac': noniso[1].GetNumHeavyAtoms(), 'molecule-uuid': molecule_uuid})
 
-        except:
+        except: # pylint: disable=bare-except
             num_failed += 1
             traceback.print_exc()
             event_logger.info('%s Caused a failure in RDKit', osmiles)

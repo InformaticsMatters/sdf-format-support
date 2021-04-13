@@ -29,25 +29,26 @@ Python virtual environment: -
 ...and then, simulating the provision of the output directory that would
 normally be created by the DataTier Manager, we can run a specific test...
 
-## Example 1.1: SDF import - No UUID
-
-Generate file with no UUID.
-
-    $ export DATASET_NAME=1
-    $ export DATASET_FILENAME=test.sdf.gz
-    $ export DATASET_OUTPUT_FORMAT=
-    $ export DATASET_EXTRA_VARIABLES='generate_uuid=False'
-    $ mkdir -p test/success/${DATASET_NAME}/output
-    $ IMAGE_NAME=${PWD##*/} docker-compose up
-
-## Example 1.2: SDF import - UUID added
+## Example 1.1: SDF import - UUID added
 
 Generate file with UUID (default).
 
     $ export DATASET_NAME=1
     $ export DATASET_FILENAME=test.sdf.gz
     $ export DATASET_OUTPUT_FORMAT=
-    $ export DATASET_EXTRA_VARIABLES=
+    $ _export DATASET_EXTRA_VARIABLES=_
+    $ mkdir -p test/success/${DATASET_NAME}/output
+    $ IMAGE_NAME=${PWD##*/} docker-compose up
+
+## Example 1.2: SDF import - No UUID 
+
+Generate file with UUID not overidden. 
+This will produce error if the input file has mol blocks that do not already have a UUID in the first line.  
+
+    $ export DATASET_NAME=1
+    $ export DATASET_FILENAME=test.sdf.gz
+    $ export DATASET_OUTPUT_FORMAT=
+    $ export DATASET_EXTRA_VARIABLES='generate_uuid=False'
     $ mkdir -p test/success/${DATASET_NAME}/output
     $ IMAGE_NAME=${PWD##*/} docker-compose up
 
