@@ -36,7 +36,7 @@ Generate file with UUID (default).
     $ export DATASET_NAME=1
     $ export DATASET_FILENAME=test.sdf.gz
     $ export DATASET_OUTPUT_FORMAT=
-    $ _export DATASET_EXTRA_VARIABLES=_
+    $ export DATASET_EXTRA_VARIABLES=
     $ mkdir -p test/success/${DATASET_NAME}/output
     $ IMAGE_NAME=${PWD##*/} docker-compose up
 

@@ -57,22 +57,30 @@ def get_processing_variables():
     process_vars['generate_uuid'] = True
     process_vars['existing_title_fieldname'] = ''
 
+    if not dataset_extra_variables:
+        return process_vars
+
     # Split into list of pairs
-    params = dataset_extra_variables.split('&')
-    for row in params:
-        param = row.split('=')
-        if param[0].lower() in _valid_params:
-            process_vars[param[0]] = param[1]
+    try:
+        params = dataset_extra_variables.split('&')
+        for row in params:
+            param = row.split('=')
+            if param[0].lower() in _valid_params:
+                process_vars[param[0]] = param[1]
 
-    if isinstance(process_vars['generate_uuid'], str) and \
-            process_vars['generate_uuid'].lower() in ['false']:
-        process_vars['generate_uuid'] = False
+        if isinstance(process_vars['generate_uuid'], str) and \
+                process_vars['generate_uuid'].lower() in ['false']:
+            process_vars['generate_uuid'] = False
 
-    if process_vars['existing_title_fieldname'] and not process_vars['generate_uuid']:
-        event_logger.info('Invalid combination of parameters')
+        if process_vars['existing_title_fieldname'] and not process_vars['generate_uuid']:
+            event_logger.info('Invalid combination of parameters')
+            sys.exit(1)
+
+        return process_vars
+
+    except:  # pylint: disable=bare-except
+        event_logger.info('Problem decoding parameters - please check format' )
         sys.exit(1)
-
-    return process_vars
 
 
 def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
