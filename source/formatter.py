@@ -2,7 +2,6 @@
 """
 import logging
 import os
-import gzip
 import traceback
 import csv
 import sys
@@ -15,9 +14,8 @@ from standardize_molecule import standardize_to_noniso_smiles
 from utils.sdf_utils import sdf_get_next_record, sdf_write_record, sdf_add_property, is_valid_uuid
 
 # The columns *every* standard file is expected to contain.
-# Use UPPER_CASE.
 # All standard files must start with these columns.
-_OUTPUT_COLUMNS = ['osmiles', 'smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid']
+_OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid', 'rec_number']
 
 # Two loggers - one for basic logging, one for events.
 basic_logger = logging.getLogger('basic')
@@ -46,7 +44,7 @@ processing_vars: Dict = {}
 def get_processing_variables():
     """Validate and return extra variables provided by user in API call
     The assumption is that this will be a text block of format name=value
-    separated by line feeds.
+    separated by '&'.
 
     :returns: process_vars - dictionary of processing variables.
     """
@@ -87,15 +85,12 @@ def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
                      rec_nr):
     """Write the given record to the output file
 
-    Some of this may end up in std_utils..
-
-    :param processing_vars: Dict
     :param output_sdf_file: File Object
     :param molecule_block:
     :param molecule_name:
     :param properties:
     :param rec_nr: to be inserted into file
-    :returns:
+    :returns: uuid csv file
     """
 
     # User has named a property name to receive the existing molecule name that will be
@@ -180,9 +175,12 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
             inchik = Chem.inchi.InchiToInchiKey(inchis)
 
             # Write the standardised data to the csv file
-            output_writer.writerow({'osmiles': osmiles, 'smiles': noniso[0],
-                             'inchis': inchis, 'inchik': inchik,
-                             'hac': noniso[1].GetNumHeavyAtoms(), 'molecule-uuid': molecule_uuid})
+            output_writer.writerow({'smiles': noniso[0],
+                                    'inchis': inchis,
+                                    'inchik': inchik,
+                                    'hac': noniso[1].GetNumHeavyAtoms(),
+                                    'molecule-uuid': molecule_uuid,
+                                    'rec_number': num_processed})
 
         except: # pylint: disable=bare-except
             num_failed += 1
@@ -226,14 +224,9 @@ if __name__ == '__main__':
         event_logger.info('Processing %s...', input_filename)
         output_sdf: object = None
 
-        if dataset_filename.endswith('.gz'):
-            input_sdf = gzip.open(input_filename, 'rt')
-            if processing_vars['generate_uuid']:
-                output_sdf = gzip.open(output_filename, 'wt')
-        else:
-            input_sdf = open(input_filename, 'rt')
-            if processing_vars['generate_uuid']:
-                output_sdf = open(output_filename, 'wt')
+        input_sdf = open(input_filename, 'rt')
+        if processing_vars['generate_uuid']:
+            output_sdf = open(output_filename, 'wt')
 
         processed, failed, mols =\
             process_file(writer, input_sdf, output_sdf)
