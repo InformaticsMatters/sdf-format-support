@@ -41,6 +41,7 @@ dataset_output_path = os.getenv('DT_DATASET_OUTPUT_PATH')
 dataset_extra_variables = os.getenv('DT_DATASET_EXTRA_VARIABLES')
 processing_vars: Dict = {}
 
+
 def get_processing_variables():
     """Validate and return extra variables provided by user in API call
     The assumption is that this will be a text block of format name=value
@@ -77,8 +78,28 @@ def get_processing_variables():
         return process_vars
 
     except:  # pylint: disable=bare-except
-        event_logger.info('Problem decoding parameters - please check format' )
+        event_logger.info('Problem decoding parameters - please check format')
         sys.exit(1)
+
+
+def write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name, properties, rec_nr):
+    """Write the given record to the output file in the case of an invalid molecule or smiles
+
+    :param output_sdf_file: File Object
+    :param molecule_block:
+    :param molecule_name:
+    :param properties:
+    :param rec_nr: to be inserted into file
+    """
+
+    # User has named a property name to receive the existing molecule name that will be
+    # overridden by the UUID.
+    if processing_vars['existing_title_fieldname'] and molecule_name:
+        properties = sdf_add_property(properties, processing_vars['existing_title_fieldname'],
+                                      [molecule_name])
+
+    molecule_uuid = 'Error'
+    sdf_write_record(output_sdf_file, molecule_block, molecule_uuid, properties, rec_nr)
 
 
 def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
@@ -122,6 +143,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
     num_processed = 0
     num_failed = 0
     num_mols = 0
+    osmiles = ''
 
     while True:
 
@@ -141,6 +163,9 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
         if not mol:
             # RDKit could not handle the record
             num_failed += 1
+            if processing_vars['generate_uuid']:
+                write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name, properties,
+                                      num_processed)
             event_logger.info('RDkit cannot handle record %s - empty mol', num_processed)
             continue
 
@@ -151,6 +176,9 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
 
             if not noniso[1]:
                 num_failed += 1
+                if processing_vars['generate_uuid']:
+                    write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name,
+                                          properties, num_processed)
                 event_logger.info('Record %s failed to standardize in RDKit', num_processed)
                 continue
 
@@ -160,7 +188,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                 # the record to a new output SDF file.
                 molecule_uuid = write_output_sdf(output_sdf_file,
                                                  molecule_block, molecule_name, properties,
-                                                 num_mols)
+                                                 num_processed)
             else:
                 # if we are not generating a UUID then the molecule name must already contain
                 # a UUID.
@@ -182,7 +210,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                                     'molecule-uuid': molecule_uuid,
                                     'rec_number': num_processed})
 
-        except: # pylint: disable=bare-except
+        except:  # pylint: disable=bare-except
             num_failed += 1
             traceback.print_exc()
             event_logger.info('%s Caused a failure in RDKit', osmiles)
