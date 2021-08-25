@@ -162,10 +162,7 @@ def check_name_in_fields(properties, fields) -> dict:
 
     for name in properties:
         if name not in fields:
-            fields[name] = 'integer'
-        prop_name_type = get_type(properties[name])
-        if prop_name_type < fields[name]:
-            fields[name] = prop_name_type
+            fields[name] = get_type(properties[name])
 
     return fields
 
@@ -405,7 +402,6 @@ if __name__ == '__main__':
         input_filename, process_filename = \
             uncompress_file()
 
-    # Open the file we'll write the standardised data set to.
     loader_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
     base_filename = os.path.splitext(process_filename)[0]
     anno_in_filename = os.path.join(
@@ -420,6 +416,7 @@ if __name__ == '__main__':
                       anno_in_filename)
     basic_logger.info('Writing annotations to %s...', anno_out_filename)
 
+    # Open the file we'll write the standardised data set to.
     with open(loader_filename, 'wt') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
         writer.writeheader()
