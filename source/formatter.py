@@ -337,7 +337,7 @@ def process_fields_descriptor(fields):
     Any fields in the FD that are not in the file are set to inactive
     """
     origin =  'Automatically created from ' + dataset_filename + ' on ' \
-            + str(datetime.datetime.utcnow())
+              + str(datetime.datetime.utcnow())
 
     # If a FieldsDescriptor has been generated from an existing file
     # (say it's a new version of an existing file or derived from an
@@ -372,6 +372,7 @@ def process_fields_descriptor(fields):
     with open(anno_out_filename, "w") as anno_file:
         json.dump(fd_new.to_dict(), anno_file)
     event_logger.info('FieldsDescriptor generated')
+
 
 if __name__ == '__main__':
     # Say Hello
