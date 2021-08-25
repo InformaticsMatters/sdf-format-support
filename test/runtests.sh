@@ -5,9 +5,8 @@
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
-# Success 1 - Formatter.
+# Success 1 - Formatter uncompressed.
 # -----------------------------------------------------------------------------
-
 
 # -----------------------------------------------------------------------------
 # test 1.1: SDF import - UUID added
@@ -59,11 +58,43 @@ mkdir -p test/${TEST_TYPE}/${TEST_DIR}/output
 IMAGE_NAME=${PWD##*/} docker-compose up
 
 # -----------------------------------------------------------------------------
-# test 1.5: SDF convert to json
+# test 1.5 - SDF import - UUID added/Name rewritten and existing annotation
 # -----------------------------------------------------------------------------
 
 export TEST_TYPE=success
 export TEST_DIR=1
+export DATASET_FILENAME=poses2.sdf
+export DATASET_OUTPUT_FORMAT=
+export DATASET_EXTRA_VARIABLES='existing_title_fieldname=Smiles'
+mkdir -p test/${TEST_TYPE}/${TEST_DIR}/output
+IMAGE_NAME=${PWD##*/} docker-compose up
+
+# -----------------------------------------------------------------------------
+# Success 2 - Formatter Compressed.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# test 2.1 - SDF import - UUID added/Name rewritten and existing annotation
+# -----------------------------------------------------------------------------
+
+export TEST_TYPE=success
+export TEST_DIR=2
+export DATASET_FILENAME=poses.sdf.gz
+export DATASET_OUTPUT_FORMAT=
+export DATASET_EXTRA_VARIABLES='existing_title_fieldname=Old-Smiles'
+mkdir -p test/${TEST_TYPE}/${TEST_DIR}/output
+IMAGE_NAME=${PWD##*/} docker-compose up
+
+# -----------------------------------------------------------------------------
+# Success 3 - Converter.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# test 3.1: SDF convert to json
+# -----------------------------------------------------------------------------
+
+export TEST_TYPE=success
+export TEST_DIR=3
 export DATASET_FILENAME=test.sdf
 export DATASET_OUTPUT_FILENAME=test.json
 export DATASET_OUTPUT_FORMAT=application/x-squonk-dataset-molecule-v2+json
@@ -72,7 +103,7 @@ mkdir -p test/${TEST_TYPE}/${TEST_DIR}/output
 IMAGE_NAME=${PWD##*/} docker-compose up
 
 # -----------------------------------------------------------------------------
-# test 1.6: SDF convert to json schema
+# test 3.2: SDF convert to json schema
 # -----------------------------------------------------------------------------
 
 export TEST_TYPE=success
@@ -83,6 +114,7 @@ export DATASET_OUTPUT_FORMAT=application/schema+json
 export DATASET_EXTRA_VARIABLES=
 mkdir -p test/${TEST_TYPE}/${TEST_DIR}/output
 IMAGE_NAME=${PWD##*/} docker-compose up
+
 
 # -----------------------------------------------------------------------------
 # Failure 1 - Formatter.

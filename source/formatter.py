@@ -1,21 +1,38 @@
-"""Process an SDF file and a csv file containing data to load into database
-"""
+"""Process an SDF file into a csv file containing data to load into database"""
 import logging
 import os
 import traceback
 import csv
 import sys
 import uuid
+import datetime
+import json
+import gzip
 
 from typing import Dict
 
-from rdkit import Chem, RDLogger
 from standardize_molecule import standardize_to_noniso_smiles
-from utils.sdf_utils import sdf_get_next_record, sdf_write_record, sdf_add_property, is_valid_uuid
+from data_manager_metadata.metadata import (FieldsDescriptorAnnotation,
+                                            get_annotation_filename)
+from rdkit import Chem, RDLogger
+
+from utils.sdf_utils import (sdf_get_next_record,
+                             sdf_write_record,
+                             sdf_add_property,
+                             is_valid_uuid)
 
 # The columns *every* standard file is expected to contain.
 # All standard files must start with these columns.
-_OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid', 'rec_number']
+_OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid',
+                   'rec_number']
+
+# Base FieldsDescriptor fields to create an SDF annotation with.
+_BASE_FIELD_NAMES = {
+    'molecule': {'type': 'object', 'description': 'SDF molecule block',
+               'required': True, 'active': True},
+    'uuid': {'type': 'text', 'description': 'Unique Identifier',
+             'required': True, 'active': True},
+    }
 
 # Two loggers - one for basic logging, one for events.
 basic_logger = logging.getLogger('basic')
@@ -28,7 +45,8 @@ basic_logger.addHandler(basic_handler)
 event_logger = logging.getLogger('event')
 event_logger.setLevel(logging.INFO)
 event_handler = logging.StreamHandler()
-event_formatter = logging.Formatter('%(asctime)s # %(levelname)s -EVENT- %(message)s')
+event_formatter = logging.Formatter\
+    ('%(asctime)s # %(levelname)s -EVENT- %(message)s')
 event_handler.setFormatter(event_formatter)
 event_logger.addHandler(event_handler)
 
@@ -71,19 +89,91 @@ def get_processing_variables():
                 process_vars['generate_uuid'].lower() in ['false']:
             process_vars['generate_uuid'] = False
 
-        if process_vars['existing_title_fieldname'] and not process_vars['generate_uuid']:
-            event_logger.info('Invalid combination of parameters')
+        if process_vars['existing_title_fieldname'] and \
+                not process_vars['generate_uuid']:
+            event_logger.error('Invalid combination of parameters')
             sys.exit(1)
 
         return process_vars
 
     except:  # pylint: disable=bare-except
-        event_logger.info('Problem decoding parameters - please check format')
+        event_logger.error('Problem decoding parameters - please check format')
         sys.exit(1)
 
 
-def write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name, properties, rec_nr):
-    """Write the given record to the output file in the case of an invalid molecule or smiles
+# Gzip Supporting functions
+def uncompress_file():
+    """"
+    Uncompress the file into the same location
+    Remove .gz from filename
+    """
+    uncompressed_filename = os.path.splitext(dataset_filename)[0]
+    uncompressed_path = os.path.join(dataset_input_path, uncompressed_filename)
+    file = open(uncompressed_path, "w")
+    with gzip.open(input_filename, 'rt') as input_csv:
+        data = input_csv.read()
+        file.write(data)
+        file.close()
+
+    event_logger.info('Input file uncompressed')
+
+    return uncompressed_path, uncompressed_filename
+
+
+def compress_file():
+    """"
+    Recompress the file into the same location
+    Remove the uncompressed file
+    """
+    compressed_path = \
+        os.path.join(dataset_output_path, dataset_filename)
+    file = gzip.open(compressed_path, "wb")
+    with open(output_filename, 'rb') as output_csv:
+        data = bytearray(output_csv.read())
+        file.write(data)
+        file.close()
+    event_logger.info('Output file compressed')
+    # Tidy up
+    os.remove(output_filename)
+    os.remove(input_filename)
+    event_logger.info('Temporary files removed')
+
+
+# Supporting function for json_schema
+def get_type(value: str) -> str:
+    """"
+    Determines the type based on the field value
+    :returns one of 'text', 'float', 'integer'
+    """
+    try:
+        float_number = float(value)
+    except ValueError:
+        return 'text'
+    else:
+        if float_number.is_integer():
+            return 'integer'
+        return 'float'
+
+
+def check_name_in_fields(properties, fields) -> dict:
+    """ check the name in the properties. If the name does not exist
+    then add the name and type to the fields dictionary.
+    """
+
+    for name in properties:
+        if name not in fields:
+            fields[name] = 'integer'
+        prop_name_type = get_type(properties[name])
+        if prop_name_type < fields[name]:
+            fields[name] = prop_name_type
+
+    return fields
+
+
+def write_output_sdf_error(output_sdf_file, molecule_block, molecule_name,
+                           properties, rec_nr):
+    """Write the given record to the output file in the case of an invalid
+    molecule or smiles
 
     :param output_sdf_file: File Object
     :param molecule_block:
@@ -92,17 +182,20 @@ def write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name, proper
     :param rec_nr: to be inserted into file
     """
 
-    # User has named a property name to receive the existing molecule name that will be
-    # overridden by the UUID.
+    # User has named a property name to receive the existing molecule name
+    # that will be overridden by the UUID.
     if processing_vars['existing_title_fieldname'] and molecule_name:
-        properties = sdf_add_property(properties, processing_vars['existing_title_fieldname'],
-                                      [molecule_name])
+        properties = sdf_add_property\
+            (properties, processing_vars['existing_title_fieldname'].lower(),
+             [molecule_name])
 
     molecule_uuid = 'Error'
-    sdf_write_record(output_sdf_file, molecule_block, molecule_uuid, properties, rec_nr)
+    sdf_write_record(output_sdf_file, molecule_block, molecule_uuid,
+                     properties, rec_nr)
 
 
-def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
+def write_output_sdf(output_sdf_file, molecule_block, molecule_name,
+                     properties,
                      rec_nr):
     """Write the given record to the output file
 
@@ -114,15 +207,17 @@ def write_output_sdf(output_sdf_file, molecule_block, molecule_name, properties,
     :returns: uuid csv file
     """
 
-    # User has named a property name to receive the existing molecule name that will be
-    # overridden by the UUID.
+    # User has named a property name to receive the existing molecule name
+    # that will be overridden by the UUID.
     if processing_vars['existing_title_fieldname'] and molecule_name:
-        properties = sdf_add_property(properties, processing_vars['existing_title_fieldname'],
-                                      [molecule_name])
+        properties = sdf_add_property\
+            (properties, processing_vars['existing_title_fieldname'].lower(),
+             [molecule_name])
 
     molecule_uuid = str(uuid.uuid4())
 
-    sdf_write_record(output_sdf_file, molecule_block, molecule_uuid, properties, rec_nr)
+    sdf_write_record(output_sdf_file, molecule_block,
+                     molecule_uuid, properties, rec_nr)
 
     return molecule_uuid
 
@@ -137,7 +232,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
     :param output_writer: DictWriter instance of csv output file
     :param input_sdf_file: SDF File to process
     :param output_sdf_file: SDF File to write to if required.
-    :returns: The number of items processed and the number of failures
+    :returns: The number of items processed, fails, molecules and field types
     """
 
     num_processed = 0
@@ -145,9 +240,12 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
     num_mols = 0
     osmiles = ''
 
+    fields = {'molecule': 'object', 'uuid': 'text'}
+
     while True:
 
-        molecule_block, molecule_name, properties = sdf_get_next_record(input_sdf_file)
+        molecule_block, molecule_name, properties = \
+            sdf_get_next_record(input_sdf_file)
 
         if not molecule_block:
             if processing_vars['generate_uuid']:
@@ -155,8 +253,8 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                 output_sdf_file.close()
             break
 
-        # If something exists in the molecule_block, then a record has been found,
-        # otherwise end of file has been reached.
+        # If something exists in the molecule_block, then a record has been
+        # found, otherwise end of file has been reached.
         num_processed += 1
         mol = Chem.MolFromMolBlock(molecule_block)
 
@@ -164,9 +262,13 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
             # RDKit could not handle the record
             num_failed += 1
             if processing_vars['generate_uuid']:
-                write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name, properties,
-                                      num_processed)
-            event_logger.info('RDkit cannot handle record %s - empty mol', num_processed)
+                write_output_sdf_error(output_sdf_file,
+                                       molecule_block,
+                                       molecule_name,
+                                       properties,
+                                       num_processed)
+            event_logger.info('RDkit cannot handle record %s - empty mol',
+                              num_processed)
             continue
 
         try:
@@ -177,30 +279,38 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
             if not noniso[1]:
                 num_failed += 1
                 if processing_vars['generate_uuid']:
-                    write_output_sdf_fail(output_sdf_file, molecule_block, molecule_name,
-                                          properties, num_processed)
-                event_logger.info('Record %s failed to standardize in RDKit', num_processed)
+                    write_output_sdf_error(output_sdf_file, molecule_block,
+                                           molecule_name,
+                                           properties, num_processed)
+                event_logger.info('Record %s failed to standardize in RDKit',
+                                  num_processed)
                 continue
 
             num_mols += 1
             if processing_vars['generate_uuid']:
-                # If we are generating a UUID for the molecules then we need to rewrite
-                # the record to a new output SDF file.
+                # If we are generating a UUID for the molecules then we need
+                # to rewrite the record to a new output SDF file.
                 molecule_uuid = write_output_sdf(output_sdf_file,
-                                                 molecule_block, molecule_name, properties,
+                                                 molecule_block,
+                                                 molecule_name,
+                                                 properties,
                                                  num_processed)
             else:
-                # if we are not generating a UUID then the molecule name must already contain
-                # a UUID.
+                # if we are not generating a UUID then the molecule name must
+                # already contain a UUID.
                 if is_valid_uuid(molecule_name):
                     molecule_uuid = molecule_name
                 else:
                     num_failed += 1
-                    event_logger.info('Record %s did not contain a uuid', num_processed)
+                    event_logger.info('Record %s did not contain a uuid',
+                                      num_processed)
                     continue
 
             inchis = Chem.inchi.MolToInchi(noniso[1], '')
             inchik = Chem.inchi.InchiToInchiKey(inchis)
+
+            # Save any new fields found in list to create Fields descriptor
+            fields = check_name_in_fields(properties, fields)
 
             # Write the standardised data to the csv file
             output_writer.writerow({'smiles': noniso[0],
@@ -213,11 +323,55 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
         except:  # pylint: disable=bare-except
             num_failed += 1
             traceback.print_exc()
-            event_logger.info('%s Caused a failure in RDKit', osmiles)
+            event_logger.error('%s Caused a failure in RDKit', osmiles)
             sys.exit(1)
 
-    return num_processed, num_failed, num_mols
+    return num_processed, num_failed, num_mols, fields
 
+
+def process_fields_descriptor(fields):
+    """ Create the FieldsDescriptor annotation that will be uploaded with the
+    dataset.
+    If a schema has been included, then the FieldsDescriptor is initialised
+    from this and then upserted with the fields present in the file.
+    Any fields in the FD that are not in the file are set to inactive
+    """
+    origin =  'Automatically created from ' + dataset_filename + ' on ' \
+            + str(datetime.datetime.utcnow())
+
+    # If a FieldsDescriptor has been generated from an existing file
+    # (say it's a new version of an existing file or derived from an
+    # existing file), then prime the fields list
+    if os.path.isfile(anno_in_filename):
+        with open(anno_in_filename, 'rt') as anno_in_file:
+            f_desc = json.load(anno_in_file)
+        fd_new = FieldsDescriptorAnnotation(origin=origin,
+                                            description=f_desc['description'],
+                                            fields=f_desc['fields'])
+        event_logger.info('Gernerating annotations from existing '
+                          'FieldsDescriptor')
+    else:
+        fd_new = FieldsDescriptorAnnotation(origin=origin,
+                                            fields=_BASE_FIELD_NAMES)
+        event_logger.info('Gernerating new FieldsDescriptor')
+
+    # Match old and new fields
+    # If field exists in fields and fd_new then ignore
+    # If field in fields but not in fd_new then add
+    # If field exists in fd_new but not in fields then make inactive.
+    existing_fields = fd_new.get_fields()
+    for field in fields:
+        if field not in existing_fields:
+            fd_new.add_field(field, True, fields[field])
+
+    for field in existing_fields:
+        if field not in fields:
+            fd_new.add_field(field, False)
+
+    # Recreate output and write the list of annotations to it.
+    with open(anno_out_filename, "w") as anno_file:
+        json.dump(fd_new.to_dict(), anno_file)
+    event_logger.info('FieldsDescriptor generated')
 
 if __name__ == '__main__':
     # Say Hello
@@ -231,23 +385,45 @@ if __name__ == '__main__':
 
     processing_vars = get_processing_variables()
     basic_logger.info('generate_uuid=%s', processing_vars['generate_uuid'])
-    basic_logger.info('existing_title_fieldname=%s', processing_vars['existing_title_fieldname'])
+    basic_logger.info('existing_title_fieldname=%s',
+                      processing_vars['existing_title_fieldname'])
 
     basic_logger.info('SDF Data Loader')
 
     # Suppress basic RDKit logging...
     RDLogger.logger().setLevel(RDLogger.ERROR)
 
+    # Non-invasive way of allowing gzip files to be sent.
+    # If the input file is a gzip, then uncompress for processing
+    # Recompress on exit
+    input_filename = os.path.join(dataset_input_path, dataset_filename)
+    process_filename = dataset_filename
+    compress: bool = False
+    if dataset_filename.endswith('.gz'):
+        compress: bool = True
+        input_filename, process_filename = \
+            uncompress_file()
+
     # Open the file we'll write the standardised data set to.
     loader_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
-    basic_logger.info('Writing to %s...', loader_filename)
+    base_filename = os.path.splitext(process_filename)[0]
+    anno_in_filename = os.path.join(
+        dataset_input_path,
+        get_annotation_filename(base_filename))
+    anno_out_filename = os.path.join(
+        dataset_output_path,
+        get_annotation_filename(base_filename))
+
+    basic_logger.info('Writing data to %s...', loader_filename)
+    basic_logger.info('Looking for current annotation in %s...',
+                      anno_in_filename)
+    basic_logger.info('Writing annotations to %s...', anno_out_filename)
 
     with open(loader_filename, 'wt') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=_OUTPUT_COLUMNS)
         writer.writeheader()
 
-        input_filename = os.path.join(dataset_input_path, dataset_filename)
-        output_filename = os.path.join(dataset_output_path, dataset_filename)
+        output_filename = os.path.join(dataset_output_path, process_filename)
 
         event_logger.info('Processing %s...', input_filename)
         output_sdf: object = None
@@ -256,8 +432,13 @@ if __name__ == '__main__':
         if processing_vars['generate_uuid']:
             output_sdf = open(output_filename, 'wt')
 
-        processed, failed, mols =\
+        processed, failed, mols, file_fields =\
             process_file(writer, input_sdf, output_sdf)
+
+    if compress:
+        compress_file()
+
+    process_fields_descriptor(file_fields)
 
     # Summary
     event_logger.info('{:,} processed molecules'.format(processed))

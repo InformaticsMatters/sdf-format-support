@@ -93,6 +93,7 @@ def sdf_add_property(properties: Dict[str, str], propname: str, propvalue: List[
     return properties
 
 
+# Supporting function for file
 def sdf_get_next_record(sdf_file):
     """Gets the next sdf record from the supplied file.
 
