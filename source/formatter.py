@@ -335,22 +335,27 @@ def process_fields_descriptor(fields):
     """
     origin =  'Automatically created from ' + dataset_filename + ' on ' \
               + str(datetime.datetime.utcnow())
-
+    anno_in_desc = ''
+    anno_in_fields = {}
     # If a FieldsDescriptor has been generated from an existing file
     # (say it's a new version of an existing file or derived from an
     # existing file), then prime the fields list
     if os.path.isfile(anno_in_filename):
         with open(anno_in_filename, 'rt') as anno_in_file:
             f_desc = json.load(anno_in_file)
-        fd_new = FieldsDescriptorAnnotation(origin=origin,
-                                            description=f_desc['description'],
-                                            fields=f_desc['fields'])
+            anno_in_desc = f_desc['description']
+            anno_in_fields = f_desc['fields']
+
+    if anno_in_fields:
         event_logger.info('Gernerating annotations from existing '
                           'FieldsDescriptor')
     else:
-        fd_new = FieldsDescriptorAnnotation(origin=origin,
-                                            fields=_BASE_FIELD_NAMES)
+        anno_in_fields=_BASE_FIELD_NAMES
         event_logger.info('Gernerating new FieldsDescriptor')
+
+    fd_new = FieldsDescriptorAnnotation(origin=origin,
+                                        description=anno_in_desc,
+                                        fields=anno_in_fields)
 
     # Match old and new fields
     # If field exists in fields and fd_new then ignore
