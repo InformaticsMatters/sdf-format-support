@@ -1,2 +1,2 @@
-im-data-manager-metadata == 0.0.15
+im-data-manager-metadata == 0.0.17
 im-standardize-molecule == 0.1.0

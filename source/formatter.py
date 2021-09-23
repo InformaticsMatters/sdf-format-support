@@ -14,6 +14,8 @@ from typing import Dict
 from standardize_molecule import standardize_to_noniso_smiles
 from data_manager_metadata.metadata import (FieldsDescriptorAnnotation,
                                             get_annotation_filename)
+from data_manager_metadata.annotation_utils import est_schema_field_type
+
 from rdkit import Chem, RDLogger
 
 from utils.sdf_utils import (sdf_get_next_record,
@@ -30,7 +32,7 @@ _OUTPUT_COLUMNS = ['smiles', 'inchis', 'inchik', 'hac', 'molecule-uuid',
 _BASE_FIELD_NAMES = {
     'molecule': {'type': 'object', 'description': 'SDF molecule block',
                'required': True, 'active': True},
-    'uuid': {'type': 'text', 'description': 'Unique Identifier',
+    'uuid': {'type': 'string', 'description': 'Unique Identifier',
              'required': True, 'active': True},
     }
 
@@ -139,22 +141,6 @@ def compress_file():
     event_logger.info('Temporary files removed')
 
 
-# Supporting function for json_schema
-def get_type(value: str) -> str:
-    """"
-    Determines the type based on the field value
-    :returns one of 'text', 'float', 'integer'
-    """
-    try:
-        float_number = float(value)
-    except ValueError:
-        return 'text'
-    else:
-        if float_number.is_integer():
-            return 'integer'
-        return 'float'
-
-
 def check_name_in_fields(properties, fields) -> dict:
     """ check the name in the properties. If the name does not exist
     then add the name and type to the fields dictionary.
@@ -162,9 +148,15 @@ def check_name_in_fields(properties, fields) -> dict:
 
     for name in properties:
         if name not in fields:
-            fields[name] = get_type(properties[name])
+            fields[name] = est_schema_field_type(properties[name])
 
     return fields
+
+
+def _log_progress(num_processed):
+
+    if not num_processed % 50000:
+        event_logger.info('%s records processed', num_processed)
 
 
 def write_output_sdf_error(output_sdf_file, molecule_block, molecule_name,
@@ -237,7 +229,7 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
     num_mols = 0
     osmiles = ''
 
-    fields = {'molecule': 'object', 'uuid': 'text'}
+    fields = {'molecule': 'object', 'uuid': 'string'}
 
     while True:
 
@@ -253,6 +245,8 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
         # If something exists in the molecule_block, then a record has been
         # found, otherwise end of file has been reached.
         num_processed += 1
+        _log_progress (num_processed)
+
         mol = Chem.MolFromMolBlock(molecule_block)
 
         if not mol:
@@ -304,7 +298,6 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
                     continue
 
             inchis = Chem.inchi.MolToInchi(noniso[1], '')
-            inchik = Chem.inchi.InchiToInchiKey(inchis)
 
             # Save any new fields found in list to create Fields descriptor
             fields = check_name_in_fields(properties, fields)
@@ -312,7 +305,8 @@ def process_file(output_writer, input_sdf_file, output_sdf_file):
             # Write the standardised data to the csv file
             output_writer.writerow({'smiles': noniso[0],
                                     'inchis': inchis,
-                                    'inchik': inchik,
+                                    'inchik':
+                                        Chem.inchi.InchiToInchiKey(inchis),
                                     'hac': noniso[1].GetNumHeavyAtoms(),
                                     'molecule-uuid': molecule_uuid,
                                     'rec_number': num_processed})
