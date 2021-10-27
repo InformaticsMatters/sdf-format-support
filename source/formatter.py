@@ -8,6 +8,7 @@ import uuid
 import datetime
 import json
 import gzip
+import shutil
 
 from typing import Dict
 
@@ -111,11 +112,9 @@ def uncompress_file():
     """
     uncompressed_filename = os.path.splitext(dataset_filename)[0]
     uncompressed_path = os.path.join(dataset_input_path, uncompressed_filename)
-    file = open(uncompressed_path, "w")
-    with gzip.open(input_filename, 'rt') as input_csv:
-        data = input_csv.read()
-        file.write(data)
-        file.close()
+    with gzip.open(input_filename, 'rt') as f_in:
+        with open(uncompressed_path, 'w') as f_out:
+            shutil.copyfileobj(f_in, f_out)
 
     event_logger.info('Input file uncompressed')
 
@@ -129,11 +128,10 @@ def compress_file():
     """
     compressed_path = \
         os.path.join(dataset_output_path, dataset_filename)
-    file = gzip.open(compressed_path, "wb")
-    with open(output_filename, 'rb') as output_csv:
-        data = bytearray(output_csv.read())
-        file.write(data)
-        file.close()
+    with open(output_filename, 'rb') as f_in:
+        with gzip.open(compressed_path, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
     event_logger.info('Output file compressed')
     # Tidy up
     os.remove(output_filename)
