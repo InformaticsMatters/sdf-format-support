@@ -327,17 +327,23 @@ def process_fields_descriptor(fields):
     """
     origin =  'Automatically created from ' + dataset_filename + ' on ' \
               + str(datetime.datetime.utcnow())
-    anno_in_desc = ''
-    anno_in_fields = {}
+    fd_in_desc = ''
+    fd_in_fields = {}
     # If a FieldsDescriptor has been generated from an existing file
     # (say it's a new version of an existing file or derived from an
     # existing file), then prime the fields list
     if os.path.isfile(meta_in_filename):
         with open(meta_in_filename, 'rt') as meta_in_file:
-            metadata = Metadata(json.load(meta_in_file))
+            metadata = Metadata(**json.load(meta_in_file))
             f_desc = metadata.get_compiled_fields()
             fd_in_desc = f_desc['description']
             fd_in_fields = f_desc['fields']
+    else:
+        # There always should be metadata passed down so this is just a
+        # placeholder for local tests
+        metadata = Metadata('dummy', 'dummy',
+                            'Created by format suuport',
+                            'Format Support')
 
     if fd_in_fields:
         event_logger.info('Gernerating annotations from existing '
