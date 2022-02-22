@@ -13,8 +13,8 @@ import shutil
 from typing import Dict
 
 from standardize_molecule import standardize_to_noniso_smiles
-from data_manager_metadata.metadata import (FieldsDescriptorAnnotation,
-                                            get_annotation_filename)
+from data_manager_metadata.metadata import Metadata, FieldsDescriptorAnnotation
+from data_manager_metadata.data_tier_api import get_metadata_filenames
 from data_manager_metadata.annotation_utils import est_schema_field_type
 
 from rdkit import Chem, RDLogger
@@ -332,22 +332,23 @@ def process_fields_descriptor(fields):
     # If a FieldsDescriptor has been generated from an existing file
     # (say it's a new version of an existing file or derived from an
     # existing file), then prime the fields list
-    if os.path.isfile(anno_in_filename):
-        with open(anno_in_filename, 'rt') as anno_in_file:
-            f_desc = json.load(anno_in_file)
-            anno_in_desc = f_desc['description']
-            anno_in_fields = f_desc['fields']
+    if os.path.isfile(meta_in_filename):
+        with open(meta_in_filename, 'rt') as meta_in_file:
+            metadata = Metadata(json.load(meta_in_file))
+            f_desc = metadata.get_compiled_fields()
+            fd_in_desc = f_desc['description']
+            fd_in_fields = f_desc['fields']
 
-    if anno_in_fields:
+    if fd_in_fields:
         event_logger.info('Gernerating annotations from existing '
                           'FieldsDescriptor')
     else:
-        anno_in_fields=_BASE_FIELD_NAMES
+        fd_in_fields=_BASE_FIELD_NAMES
         event_logger.info('Gernerating new FieldsDescriptor')
 
     fd_new = FieldsDescriptorAnnotation(origin=origin,
-                                        description=anno_in_desc,
-                                        fields=anno_in_fields)
+                                        description=fd_in_desc,
+                                        fields=fd_in_fields)
 
     # Match old and new fields
     # If field exists in fields and fd_new then ignore
@@ -363,8 +364,9 @@ def process_fields_descriptor(fields):
             fd_new.add_field(field, False)
 
     # Recreate output and write the list of annotations to it.
-    with open(anno_out_filename, "w") as anno_file:
-        json.dump(fd_new.to_dict(), anno_file)
+    with open(meta_out_filename, "w") as meta_file:
+        metadata.add_annotation(fd_new)
+        json.dump(metadata.to_dict(), meta_file)
     event_logger.info('FieldsDescriptor generated')
 
 
@@ -400,18 +402,18 @@ if __name__ == '__main__':
             uncompress_file()
 
     loader_filename = os.path.join(dataset_output_path, 'tmploaderfile.csv')
-    base_filename = os.path.splitext(process_filename)[0]
-    anno_in_filename = os.path.join(
+    meta_filename, dummy = get_metadata_filenames(process_filename)
+    meta_in_filename = os.path.join(
         dataset_input_path,
-        get_annotation_filename(base_filename))
-    anno_out_filename = os.path.join(
+        meta_filename)
+    meta_out_filename = os.path.join(
         dataset_output_path,
-        get_annotation_filename(base_filename))
+        meta_filename)
 
     basic_logger.info('Writing data to %s...', loader_filename)
     basic_logger.info('Looking for current annotation in %s...',
-                      anno_in_filename)
-    basic_logger.info('Writing annotations to %s...', anno_out_filename)
+                      meta_in_filename)
+    basic_logger.info('Writing annotations to %s...', meta_out_filename)
 
     # Open the file we'll write the standardised data set to.
     with open(loader_filename, 'wt') as csvfile:
